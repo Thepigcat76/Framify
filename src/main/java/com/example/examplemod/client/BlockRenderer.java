@@ -1,40 +1,23 @@
-package com.example.examplemod;
+package com.example.examplemod.client;
 
-import com.mojang.blaze3d.platform.Lighting;
+import com.example.examplemod.ExampleMod;
 import com.mojang.blaze3d.vertex.PoseStack;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.lighting.LevelLightEngine;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 import java.util.Map;
 
-@EventBusSubscriber(modid = ExampleMod.MODID, value = Dist.CLIENT)
-public class ClientEvents {
+public class BlockRenderer {
     public static Map<BlockPos, Block> FRAMED_BLOCKS = new Object2ObjectOpenHashMap<>();
 
-    @SubscribeEvent
-    public static void renderLevelStage(RenderLevelStageEvent event) {
-        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) {
-            renderBlock(event);
-        }
-    }
-
-    private static void renderBlock(RenderLevelStageEvent event) {
+    public static void renderBlock(PoseStack poseStack, Camera camera) {
         Minecraft mc = Minecraft.getInstance();
 
         for (Map.Entry<BlockPos, Block> entry : FRAMED_BLOCKS.entrySet()) {
@@ -43,8 +26,7 @@ public class ClientEvents {
             BlockState blockState = level.getBlockState(blockPos);
             if (blockState.is(ExampleMod.EXAMPLE_BLOCK)) {
                 Block storedBlock = entry.getValue();
-                PoseStack poseStack = event.getPoseStack();
-                Vec3 vec3 = event.getCamera().getPosition();
+                Vec3 vec3 = camera.getPosition();
                 double d0 = vec3.x();
                 double d1 = vec3.y();
                 double d2 = vec3.z();

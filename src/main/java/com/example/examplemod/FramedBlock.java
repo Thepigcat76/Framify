@@ -1,12 +1,12 @@
 package com.example.examplemod;
 
+import com.example.examplemod.client.BlockRenderer;
+import com.example.examplemod.client.ClientEvents;
 import com.example.examplemod.networking.RemoveFramedBlockPayload;
 import com.example.examplemod.networking.SetFramedBlockPayload;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -60,7 +60,7 @@ public class FramedBlock extends Block {
         if (level instanceof ServerLevel serverLevel) {
             return FramedBlockSavedData.get(serverLevel).contains(blockPos);
         } else if (level.isClientSide()) {
-            return ClientEvents.FRAMED_BLOCKS.containsKey(blockPos);
+            return BlockRenderer.FRAMED_BLOCKS.containsKey(blockPos);
         }
         return false;
     }
