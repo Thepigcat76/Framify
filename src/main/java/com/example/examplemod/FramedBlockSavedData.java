@@ -3,32 +3,31 @@ package com.example.examplemod;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
-import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.saveddata.SavedData;
+import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class FramedBlockSavedData extends SavedData {
     public static final String ID = "framify_framed_block_saved_data";
-    public static final Codec<Map<BlockPos, Block>> CODEC = Codec.unboundedMap(
-            BlockPos.CODEC,
-            ResourceLocation.CODEC.xmap(BuiltInRegistries.BLOCK::get, BuiltInRegistries.BLOCK::getKey)
+    public static final Codec<Map<String, Block>> CODEC = Codec.unboundedMap(
+            Codec.STRING,
+            Utils.BLOCK_CODEC
     );
 
-    private Map<BlockPos, Block> framedBlocks;
+    private final Object2ObjectOpenHashMap<BlockPos, Block> framedBlocks;
 
-    public FramedBlockSavedData(Map<BlockPos, Block> framedBlocks) {
+    public FramedBlockSavedData(Object2ObjectOpenHashMap<BlockPos, Block> framedBlocks) {
         this.framedBlocks = framedBlocks;
     }
 
@@ -50,25 +49,45 @@ public class FramedBlockSavedData extends SavedData {
         return this.framedBlocks.containsKey(blockPos);
     }
 
+    public Object2ObjectOpenHashMap<BlockPos, Block> getFramedBlocks() {
+        return framedBlocks;
+    }
+
     @Override
-    public CompoundTag save(CompoundTag compoundTag, HolderLookup.Provider provider) {
-        DataResult<Tag> tagDataResult = CODEC.encodeStart(NbtOps.INSTANCE, framedBlocks);
-        if (tagDataResult.isSuccess()) {
-            compoundTag.put(ID+"map", tagDataResult.getOrThrow());
-        } else {
-            ExampleMod.LOGGER.error("ERROR: Failed to save framed blocks saved data");
-        }
+    public @NotNull CompoundTag save(CompoundTag compoundTag, HolderLookup.Provider provider) {
+        DataResult<Tag> tagDataResult = CODEC.encodeStart(NbtOps.INSTANCE, blocksToString());
+        tagDataResult
+                .resultOrPartial(err -> ExampleMod.LOGGER.error("Encoding error: {}", err))
+                .ifPresent(tag -> compoundTag.put(ID, tag));
         return compoundTag;
     }
 
-    public static FramedBlockSavedData load(CompoundTag tag) {
-        DataResult<Pair<Map<BlockPos, Block>, Tag>> dataResult = CODEC.decode(NbtOps.INSTANCE, tag.get(ID + "map"));
-        if (dataResult.isSuccess()) {
-            return new FramedBlockSavedData(dataResult.getOrThrow().getFirst());
-        } else {
-            ExampleMod.LOGGER.error("ERROR: Failed to load framed blocks saved data");
-            return new FramedBlockSavedData();
+    public Map<String, Block> blocksToString() {
+        Map<String, Block> map = new HashMap<>();
+        for (Map.Entry<BlockPos, Block> entry : framedBlocks.entrySet()) {
+            map.put(String.valueOf(entry.getKey().asLong()), entry.getValue());
         }
+        return map;
+    }
+
+    public static FramedBlockSavedData load(CompoundTag tag) {
+        ExampleMod.LOGGER.debug("NBT: {}", tag.getAllKeys());
+        DataResult<Pair<Map<String, Block>, Tag>> dataResult = CODEC.decode(NbtOps.INSTANCE, tag.get(ID));
+        Optional<Pair<Map<String, Block>, Tag>> mapTagPair = dataResult
+                .resultOrPartial(err -> ExampleMod.LOGGER.error("Decoding error: {}", err));
+        if (mapTagPair.isPresent()) {
+            Map<String, Block> map = mapTagPair.get().getFirst();
+            return new FramedBlockSavedData(blocksFromString(map));
+        }
+        return new FramedBlockSavedData();
+    }
+
+    public static Object2ObjectOpenHashMap<BlockPos, Block> blocksFromString(Map<String, Block> map) {
+        Object2ObjectOpenHashMap<BlockPos, Block> blocks = new Object2ObjectOpenHashMap<>();
+        for (Map.Entry<String, Block> entry : map.entrySet()) {
+            blocks.put(BlockPos.of(Long.parseLong(entry.getKey())), entry.getValue());
+        }
+        return blocks;
     }
 
     public static SavedData.Factory<FramedBlockSavedData> factory() {
