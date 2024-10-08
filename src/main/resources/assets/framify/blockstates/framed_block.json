@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "framify:block/framed_block"
+    }
+  }
+}
