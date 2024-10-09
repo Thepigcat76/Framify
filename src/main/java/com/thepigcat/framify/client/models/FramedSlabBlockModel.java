@@ -12,6 +12,7 @@ import net.minecraft.client.renderer.block.BlockModelShaper;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.client.resources.model.WeightedBakedModel;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -21,11 +22,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.neoforged.neoforge.client.model.BakedModelWrapper;
+import net.neoforged.neoforge.client.model.IQuadTransformer;
 import net.neoforged.neoforge.client.model.data.ModelData;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
+
+import static com.thepigcat.framify.utils.quad.QuadTable.copyAll;
 
 public class FramedSlabBlockModel extends BakedModelWrapper<BakedModel> {
     private static final QuadModifier.Modifier NOOP_MODIFIER = data -> true;
@@ -36,15 +43,19 @@ public class FramedSlabBlockModel extends BakedModelWrapper<BakedModel> {
 
     @Override
     public @NotNull List<BakedQuad> getQuads(@Nullable BlockState state, @Nullable Direction side, RandomSource rand, ModelData extraData, @Nullable RenderType renderType) {
+        Minecraft mc = Minecraft.getInstance();
+
         Block block = extraData.get(BlockRenderer.PROPERTY);
         QuadTable quadTable = new QuadTable();
         if (block != null) {
-            quadTable.initializeForLayer(renderType);
-            List<BakedQuad> quads = Minecraft.getInstance().getModelManager().getModel(BlockModelShaper.stateToModelLocation(block.defaultBlockState())).getQuads(state, side, rand, extraData, renderType);
-            for (BakedQuad quad : quads) {
-                transformQuad(quadTable, state, quad);
+            for (RenderType type : getRenderTypes(state, rand, ModelData.EMPTY)) {
+                quadTable.initializeForLayer(type);
+                List<BakedQuad> quads = getCullableQuads(mc.getBlockRenderer().getBlockModel(block.defaultBlockState()), state, rand, ModelData.EMPTY, type, d -> true);
+                for (BakedQuad quad : quads) {
+                    transformQuad(quadTable, state, quad);
+                }
             }
-            return quadTable.getAllQuads(side);
+            return quadTable.getQuads(renderType, side);
         }
         return originalModel.getQuads(state, side, rand, extraData, renderType);
     }
@@ -54,7 +65,7 @@ public class FramedSlabBlockModel extends BakedModelWrapper<BakedModel> {
         if (state == null) return;
 
         boolean b = state.getValue(SlabBlock.TYPE) == SlabType.TOP;
-        if ((b && quad.getDirection() == Direction.DOWN) || (state.getValue(SlabBlock.TYPE) != SlabType.TOP && quad.getDirection() == Direction.UP))
+        if ((b && quad.getDirection() == Direction.DOWN) || (!b && quad.getDirection() == Direction.UP))
         {
             QuadModifier.of(quad)
                     .apply(setPosition(.5F))
@@ -65,6 +76,8 @@ public class FramedSlabBlockModel extends BakedModelWrapper<BakedModel> {
             QuadModifier.of(quad)
                     .apply(cutSideUpDown(b, .5F))
                     .export(quadTable.get(quad.getDirection()));
+        } else {
+            Framify.LOGGER.debug("AAA");
         }
     }
 
@@ -258,5 +271,97 @@ public class FramedSlabBlockModel extends BakedModelWrapper<BakedModel> {
         {
             data.uv(uvTo, uvIdx,  (invert) ? uvMin : uvMax);
         }
+    }
+
+    public static ArrayList<BakedQuad> getCullableQuads(
+            BakedModel model,
+            BlockState state,
+            RandomSource rand,
+            ModelData data,
+            RenderType renderType,
+            Predicate<Direction> filter
+    )
+    {
+//        if (model instanceof WeightedBakedModel weighted)
+//        {
+//            model = ((AccessorWeightedBakedModel) weighted).framedblocks$getWrappedModel();
+//        }
+
+        ArrayList<BakedQuad> quads = new ArrayList<>();
+        for (Direction dir : Direction.values())
+        {
+            if (filter.test(dir))
+            {
+                List<BakedQuad> sideQuads = model.getQuads(state, dir, rand, data, renderType);
+                if (sideQuads.isEmpty())
+                {
+                    // Try extracting useful quads from the list of (supposedly) uncullable quads if querying cullable
+                    // ones returned nothing due to the dev forgetting to specify cull-faces in the model
+                    sideQuads = getFilteredNullQuads(model, state, rand, data, renderType, dir);
+                }
+                copyAll(sideQuads, quads);
+            }
+        }
+        return quads;
+    }
+
+    public static List<BakedQuad> getFilteredNullQuads(
+            BakedModel model,
+            BlockState state,
+            RandomSource rand,
+            ModelData data,
+            @Nullable RenderType renderType,
+            Direction side
+    )
+    {
+        List<BakedQuad> nullQuads = model.getQuads(state, side, rand, data, renderType);
+        if (nullQuads.isEmpty()) return Collections.emptyList();
+
+        List<BakedQuad> filtered = new ArrayList<>();
+        for (int i = 0; i < nullQuads.size(); i++)
+        {
+            BakedQuad quad = nullQuads.get(i);
+
+            // Filter out quads pointing completely the wrong way early
+            if (quad.getDirection() != side) continue;
+
+            float minX = 32F;
+            float minY = 32F;
+            float minZ = 32F;
+            float maxX = -32F;
+            float maxY = -32F;
+            float maxZ = -32F;
+
+            int[] vertexData = quad.getVertices();
+            for (int vert = 0; vert < 4; ++vert)
+            {
+                int offset = vert * IQuadTransformer.STRIDE + IQuadTransformer.POSITION;
+
+                float x = Float.intBitsToFloat(vertexData[offset]);
+                float y = Float.intBitsToFloat(vertexData[offset + 1]);
+                float z = Float.intBitsToFloat(vertexData[offset + 2]);
+
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                minZ = Math.min(minZ, z);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+                maxZ = Math.max(maxZ, z);
+            }
+
+            boolean positive = isPositive(side);
+            boolean aligned = switch(side.getAxis())
+            {
+                case X -> minX == maxX && (positive ? maxX > 0.9999F : minX < 0.0001F);
+                case Y -> minY == maxY && (positive ? maxY > 0.9999F : minY < 0.0001F);
+                case Z -> minZ == maxZ && (positive ? maxZ > 0.9999F : minZ < 0.0001F);
+            };
+
+            if (aligned)
+            {
+                filtered.add(quad);
+            }
+        }
+        return filtered;
     }
 }
